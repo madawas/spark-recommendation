@@ -42,7 +42,7 @@ public class Recommendation {
 
         //Reading external data
         final JavaRDD<String> ratingData = sc.textFile(RESOURCE_PATH + RATINGS_FILE_NAME);
-        JavaRDD<String> movieData = sc.textFile(RESOURCE_PATH + MOVIES_FILE_NAME);
+        JavaRDD<String> productData = sc.textFile(RESOURCE_PATH + MOVIES_FILE_NAME);
 
         JavaRDD<Tuple2<Integer, Rating>> ratings = ratingData.map(
                 new Function<String, Tuple2<Integer, Rating>>() {
@@ -55,7 +55,7 @@ public class Recommendation {
                 }
         );
 
-        Map<Integer, String> movies = movieData.mapToPair(
+        Map<Integer, String> products = productData.mapToPair(
                 new PairFunction<String, Integer, String>() {
                     public Tuple2<Integer, String> call(String s) throws Exception {
                         String[] sarray = s.split(LINE_SEPERATOR);
@@ -82,7 +82,7 @@ public class Recommendation {
         ).distinct().count();
 
         System.out.println("Got " + ratingCount + " ratings from "
-                + userCount + " users on " + movieCount + " movies.");
+                + userCount + " users on " + movieCount + " products.");
 
         //Splitting training data
         int numPartitions = 10;
@@ -169,21 +169,29 @@ public class Recommendation {
             }
         }
 
+        //Computing Root Mean Square Error in the test dataset
         Double testRmse = computeRMSE(bestModel, test);
         System.out.println("The best model was trained with rank = " + bestRank + " and lambda = " + bestLambda
                 + ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".");
 
-        List<Rating> recommendations = getRecommendations(1, bestModel, ratings, movies);
+        List<Rating> recommendations = getRecommendations(1, bestModel, ratings, products);
 
+        //Printing Recommendations
         for (Rating recommendation : recommendations) {
-            if (movies.containsKey(recommendation.product())) {
-                System.out.println(recommendation.product() + " " + movies.get(recommendation.product()));
+            if (products.containsKey(recommendation.product())) {
+                System.out.println(recommendation.product() + " " + products.get(recommendation.product()));
             }
         }
 
     }
 
-    //Compute Root Mean Square Error
+    /**
+     * Calculating the Root Mean Squared Error
+     *
+     * @param model best model generated.
+     * @param data  rating data.
+     * @return      Root Mean Squared Error
+     */
     public static Double computeRMSE(MatrixFactorizationModel model, JavaRDD<Rating> data) {
         JavaRDD<Tuple2<Object, Object>> userProducts = data.map(
                 new Function<Rating, Tuple2<Object, Object>>() {
@@ -224,52 +232,16 @@ public class Recommendation {
         return Math.sqrt(mse);
     }
 
-    private static Double computeRMSE(MatrixFactorizationModel model, JavaRDD<Rating> ratings, Long n) {
-        JavaRDD<Tuple2<Object, Object>> userProducts = ratings.map(
-                new Function<Rating, Tuple2<Object, Object>>() {
-                    public Tuple2<Object, Object> call(Rating r) {
-                        return new Tuple2<Object, Object>(r.user(), r.product());
-                    }
-                }
-        );
-
-        JavaPairRDD<Tuple2<Integer, Integer>, Double> predictions = JavaPairRDD.fromJavaRDD(
-                model.predict(JavaRDD.toRDD(userProducts)).toJavaRDD().map(
-                        new Function<Rating, Tuple2<Tuple2<Integer, Integer>, Double>>() {
-                            public Tuple2<Tuple2<Integer, Integer>, Double> call(Rating r) {
-                                return new Tuple2<Tuple2<Integer, Integer>, Double>(
-                                        new Tuple2<Integer, Integer>(r.user(), r.product()), r.rating());
-                            }
-                        }
-                ));
-        JavaRDD<Tuple2<Double, Double>> predictionsAndRatings =
-                JavaPairRDD.fromJavaRDD(ratings.map(
-                        new Function<Rating, Tuple2<Tuple2<Integer, Integer>, Double>>() {
-                            public Tuple2<Tuple2<Integer, Integer>, Double> call(Rating r) {
-                                return new Tuple2<Tuple2<Integer, Integer>, Double>(
-                                        new Tuple2<Integer, Integer>(r.user(), r.product()), r.rating());
-                            }
-                        }
-                )).join(predictions).values();
-
-        Double rmse = (Double) predictionsAndRatings.map(
-                new Function<Tuple2<Double, Double>, Object>() {
-                    public Object call(Tuple2<Double, Double> tuple) throws Exception {
-                        return (tuple._1() - tuple._2()) * (tuple._1() - tuple._2());
-                    }
-                }
-        ).reduce(
-                new Function2<Object, Object, Object>() {
-                    public Object call(Object o, Object o2) throws Exception {
-                        return (Double)o + (Double) o2;
-                    }
-                }
-        );
-
-        return Math.sqrt(rmse/n);
-    }
-
-    private static List<Rating> getRecommendations(final int userId, MatrixFactorizationModel model, JavaRDD<Tuple2<Integer, Rating>> ratings, Map<Integer, String> movies) {
+    /**
+     * Returns the list of recommendations for a given user
+     *
+     * @param userId    user id.
+     * @param model     best model.
+     * @param ratings   rating data.
+     * @param products  product list.
+     * @return          The list of recommended products.
+     */
+    private static List<Rating> getRecommendations(final int userId, MatrixFactorizationModel model, JavaRDD<Tuple2<Integer, Rating>> ratings, Map<Integer, String> products) {
         List<Rating> recommendations = new ArrayList<Rating>();
 
         JavaRDD<Rating> userRatings = ratings.filter(
@@ -295,7 +267,7 @@ public class Recommendation {
         );
 
         List<Integer> movieSet = new ArrayList<Integer>();
-        movieSet.addAll(movies.keySet());
+        movieSet.addAll(products.keySet());
 
         Iterator<Tuple2<Object, Object>> productIterator = userProducts.toLocalIterator();
 
