@@ -13,6 +13,7 @@ import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.mllib.recommendation.ALS;
 import org.apache.spark.mllib.recommendation.MatrixFactorizationModel;
 import org.apache.spark.mllib.recommendation.Rating;
+import org.apache.spark.rdd.RDD;
 import org.apache.spark.storage.StorageLevel;
 import scala.Tuple2;
 
@@ -171,9 +172,15 @@ public class Recommendation {
 
         //Computing Root Mean Square Error in the test dataset
         Double testRmse = computeRMSE(bestModel, test);
-        System.out.println("The best model was trained with rank = " + bestRank + " and lambda = " + bestLambda
-                + ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".");
+        RDD<Tuple2<Object, double[]>> features = bestModel.productFeatures();
+        System.out.println("Saving model");
+        bestModel.save(sc.sc(), "/home/madawa/model");
+        features.saveAsTextFile(RESOURCE_PATH + "features");
+        System.out.println("The best model was trained with rank = " + bestRank + " and lambda = " + bestLambda +
+                           ", and numIter = " + bestNumIter + ", and its RMSE on the test set is " + testRmse + ".");
 
+        System.out.println("Loading model");
+        bestModel = MatrixFactorizationModel.load(sc.sc(), "/home/madawa/model");
         List<Rating> recommendations = getRecommendations(1, bestModel, ratings, products);
 
         //Printing Recommendations
@@ -242,8 +249,9 @@ public class Recommendation {
      * @return          The list of recommended products.
      */
     private static List<Rating> getRecommendations(final int userId, MatrixFactorizationModel model, JavaRDD<Tuple2<Integer, Rating>> ratings, Map<Integer, String> products) {
-        List<Rating> recommendations = new ArrayList<Rating>();
+        List<Rating> recommendations;
 
+        //Getting the users ratings
         JavaRDD<Rating> userRatings = ratings.filter(
                 new Function<Tuple2<Integer, Rating>, Boolean>() {
                     public Boolean call(Tuple2<Integer, Rating> tuple) throws Exception {
@@ -258,6 +266,7 @@ public class Recommendation {
                 }
         );
 
+        //Getting the product ID's of the products that user rated
         JavaRDD<Tuple2<Object, Object>> userProducts = userRatings.map(
                 new Function<Rating, Tuple2<Object, Object>>() {
                     public Tuple2<Object, Object> call(Rating r) {
@@ -266,19 +275,20 @@ public class Recommendation {
                 }
         );
 
-        List<Integer> movieSet = new ArrayList<Integer>();
-        movieSet.addAll(products.keySet());
+        List<Integer> productSet = new ArrayList<Integer>();
+        productSet.addAll(products.keySet());
 
         Iterator<Tuple2<Object, Object>> productIterator = userProducts.toLocalIterator();
 
+        //Removing the user watched (rated) set from the all product set
         while(productIterator.hasNext()) {
             Integer movieId = (Integer)productIterator.next()._2();
-            if(movieSet.contains(movieId)){
-                movieSet.remove(movieId);
+            if(productSet.contains(movieId)){
+                productSet.remove(movieId);
             }
         }
 
-        JavaRDD<Integer> candidates = sc.parallelize(movieSet);
+        JavaRDD<Integer> candidates = sc.parallelize(productSet);
 
         JavaRDD<Tuple2<Integer, Integer>> userCandidates = candidates.map(
                 new Function<Integer, Tuple2<Integer, Integer>>() {
@@ -288,14 +298,17 @@ public class Recommendation {
                 }
         );
 
+        //Predict recommendations for the given user
         recommendations = model.predict(JavaPairRDD.fromJavaRDD(userCandidates)).collect();
 
+        //Sorting the recommended products and sort them according to the rating
         Collections.sort(recommendations, new Comparator<Rating>() {
             public int compare(Rating r1, Rating r2) {
                 return r1.rating() < r2.rating() ? -1 : r1.rating() > r2.rating() ? 1 : 0;
             }
         });
 
+        //get top 50 from the recommended products.
         recommendations = recommendations.subList(0, 50);
 
         return recommendations;
