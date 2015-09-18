@@ -15,7 +15,7 @@ public class CollaborativeFiltering {
         JavaSparkContext sc = new JavaSparkContext(conf);
 
         // Load and parse the data
-        String path = "/home/madawa/WSO2/spark-test/src/main/resources/recommendation/test.data";
+        String path = "path to data files";
         JavaRDD<String> data = sc.textFile(path);
         JavaRDD<Rating> ratings = data.map(
                 new Function<String, Rating>() {
