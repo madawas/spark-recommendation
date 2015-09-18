@@ -25,7 +25,7 @@ import java.util.*;
 
 public class Recommendation {
     public static final String LINE_SEPERATOR = "::";
-    public static final String RESOURCE_PATH = "/home/madawa/WSO2/usb/data/movielens/medium/";
+    public static final String RESOURCE_PATH = "resources-directory-path"; //absoulute path to the directory that the data files are stored
     public static final String RATINGS_FILE_NAME = "ratings.dat";
     public static final String MOVIES_FILE_NAME = "movies.dat";
     public static final String APP_NAME = "MovieRecommendation";
